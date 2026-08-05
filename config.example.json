@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "dashboard_domain": "vps.example.com",
+  "data_dir": "/var/lib/vps-visibility",
+  "retention_days": 14,
+  "probe_via": "localhost",
+  "public_ip": null,
+  "filesystems": ["/"],
+  "thresholds": {"disk_pct": 90, "mem_pct": 90, "cert_warn_days": 14},
+  "telegram": {"bot_token": null, "chat_id": null},
+  "app_overrides": [
+    {"match": "myapp", "dir": "/opt/myapp", "label": "My App"}
+  ]
+}
