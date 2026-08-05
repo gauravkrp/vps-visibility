@@ -1,4 +1,4 @@
-from collector.gatherers.ports import parse_ss
+from collector.gatherers.ports import gather, parse_ss
 
 SS = """LISTEN 0 4096 127.0.0.1:3000 0.0.0.0:* users:(("docker-proxy",pid=1111,fd=8))
 LISTEN 0 511 0.0.0.0:8055 0.0.0.0:* users:(("node",pid=2222,fd=21))
@@ -27,3 +27,13 @@ def test_first_pid_wins_on_multi_process_socket():
 def test_scoped_address_is_not_public():
     l = [x for x in parse_ss(SS) if x["port"] == 53][0]
     assert l["public"] is False
+
+
+def test_gather_returns_ok_on_success():
+    result = gather(runner=lambda cmd: (0, SS))
+    assert result == {"status": "ok", "data": parse_ss(SS)}
+
+
+def test_gather_returns_error_on_failure():
+    result = gather(runner=lambda cmd: (1, ""))
+    assert result["status"] == "error"
