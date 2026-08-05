@@ -1,3 +1,7 @@
+import platform
+
+import pytest
+
 from collector.gatherers import certs, host
 
 MEMINFO = """MemTotal:       16000000 kB
@@ -36,6 +40,7 @@ def test_certs_gather_skips_unreadable_paths():
     assert certs.gather(["/nope.pem"], 1754300000, runner)["data"] == {}
 
 
+@pytest.mark.skipif(platform.system() != "Linux", reason="host.gather() reads /proc directly, Linux only")
 def test_host_gather_returns_ok_with_filesystems_and_public_ip():
     def runner(cmd, timeout=10):
         if cmd[0] == "df":
