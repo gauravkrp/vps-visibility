@@ -2,11 +2,18 @@ import json
 import urllib.request
 
 
+# Warning kinds worth a Telegram ping. The rest (gatherer_error, cert_expiring,
+# disk, mem) already have their own alert paths below, so tracking them here too
+# would send every alert twice.
+TRACKED_WARNING_KINDS = {"dead_vhost", "exposed_port", "tls_invalid"}
+
+
 def compute(prev, current, config, now_ts):
     msgs = []
     thresholds = config["thresholds"]
     state = {"domains": {}, "apps": {}, "breaches": {},
-             "cert_sent": dict(prev.get("cert_sent", {})), "gerrs": {}}
+             "cert_sent": dict(prev.get("cert_sent", {})), "gerrs": {},
+             "warnings": {}}
 
     prev_domains = prev.get("domains", {})
     for app in current["apps"]:
@@ -68,6 +75,21 @@ def compute(prev, current, config, now_ts):
             state["gerrs"][name] = result.get("message", "")
             if name not in prev_gerrs:
                 msgs.append("COLLECTOR: %s gatherer failing: %s" % (name, result.get("message", "")))
+
+    prev_warnings = prev.get("warnings", {})
+    current_warnings = {}
+    for w in current.get("warnings", []):
+        if w["kind"] in TRACKED_WARNING_KINDS:
+            current_warnings[w["kind"] + ":" + w["message"]] = w["message"]
+    for key, message in current_warnings.items():
+        if key not in prev_warnings:
+            # Kinds never contain a colon, so the first one always ends the kind
+            # even when the message has its own (a host:port, say).
+            msgs.append("%s: %s" % (key.split(":", 1)[0].upper(), message))
+    for key, message in prev_warnings.items():
+        if key not in current_warnings:
+            msgs.append("RESOLVED (%s): %s" % (key.split(":", 1)[0].upper(), message))
+    state["warnings"] = current_warnings
 
     return msgs, state
 

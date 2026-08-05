@@ -7,8 +7,13 @@ from collector import alerts
 CONFIG = {"thresholds": {"disk_pct": 90, "mem_pct": 90, "cert_warn_days": 14}}
 
 
+DEAD_VHOST_MSG = "monitoring.example.com points at 127.0.0.1:8080 but nothing is listening there"
+EXPOSED_PORT_MSG = "port 5432 is listening on 0.0.0.0"
+
+
 def make_current(dom_ok=True, status=200, disk_pct=50.0, mem_used=50,
-                 started="2026-08-04T18:00:05Z", certs=None, gatherers=None):
+                 started="2026-08-04T18:00:05Z", certs=None, gatherers=None,
+                 warnings=None):
     return {
         "apps": [{"name": "shop", "runtime": "compose", "started_at": started,
                   "mem_bytes": 0, "disk_bytes": None, "containers": [], "dir": None,
@@ -20,6 +25,7 @@ def make_current(dom_ok=True, status=200, disk_pct=50.0, mem_used=50,
                  "mem": {"total_bytes": 100, "used_bytes": mem_used}},
         "certs": certs or {},
         "gatherers": gatherers or {"nginx": {"status": "ok"}},
+        "warnings": warnings or [],
     }
 
 
@@ -85,6 +91,37 @@ def test_gatherer_error_alerts_on_transition():
     assert any(m.startswith("COLLECTOR") for m in msgs)
     msgs, _ = alerts.compute(state, make_current(gatherers=bad), CONFIG, 1300)
     assert msgs == []
+
+
+def test_dead_vhost_warning_alerts_once():
+    warns = [{"kind": "dead_vhost", "message": DEAD_VHOST_MSG}]
+    msgs, state = alerts.compute({}, make_current(warnings=warns), CONFIG, 1000)
+    assert any(m.startswith("DEAD_VHOST:") and DEAD_VHOST_MSG in m for m in msgs)
+    msgs, _ = alerts.compute(state, make_current(warnings=warns), CONFIG, 1300)
+    assert msgs == []
+
+
+def test_dead_vhost_warning_clearing_alerts_resolved():
+    warns = [{"kind": "dead_vhost", "message": DEAD_VHOST_MSG}]
+    _, state = alerts.compute({}, make_current(warnings=warns), CONFIG, 1000)
+    msgs, state = alerts.compute(state, make_current(), CONFIG, 1300)
+    assert any(m.startswith("RESOLVED (DEAD_VHOST):") and DEAD_VHOST_MSG in m for m in msgs)
+    msgs, _ = alerts.compute(state, make_current(), CONFIG, 1600)
+    assert msgs == []
+
+
+def test_exposed_port_warning_alerts_on_onset():
+    warns = [{"kind": "exposed_port", "message": EXPOSED_PORT_MSG}]
+    msgs, _ = alerts.compute({}, make_current(warnings=warns), CONFIG, 1000)
+    assert any(m.startswith("EXPOSED_PORT:") and EXPOSED_PORT_MSG in m for m in msgs)
+
+
+def test_untracked_warning_kinds_are_ignored():
+    warns = [{"kind": "gatherer_error", "message": "nginx gatherer failed"},
+             {"kind": "cert_expiring", "message": "cert expires in 3 days"}]
+    msgs, state = alerts.compute({}, make_current(warnings=warns), CONFIG, 1000)
+    assert msgs == []
+    assert state["warnings"] == {}
 
 
 def test_send_telegram_success():
