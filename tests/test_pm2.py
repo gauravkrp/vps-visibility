@@ -24,6 +24,20 @@ def test_leading_noise_before_json_is_skipped():
     assert pm2.gather(lambda cmd, timeout=30: (0, out))["status"] == "ok"
 
 
+def test_daemon_banner_lines_starting_with_bracket_are_skipped():
+    out = (
+        "[PM2] Spawning PM2 daemon with pm2_home=/root/.pm2\n"
+        "[PM2] PM2 Successfully daemonized\n"
+        + JLIST
+    )
+    result = pm2.gather(lambda cmd, timeout=30: (0, out))
+    assert result["status"] == "ok"
+    assert result["data"] == [{
+        "name": "cms", "pid": 2222, "status": "online", "mem_bytes": 190000000,
+        "restarts": 3, "started_at": "2025-08-04T09:33:20+00:00", "cwd": "/var/www/cms",
+    }]
+
+
 def test_pm2_missing_reports_absent():
     assert pm2.gather(lambda cmd, timeout=30: (-1, ""))["status"] == "absent"
 

@@ -10,14 +10,28 @@ def gather(runner=run_command):
         return absent("pm2 not installed")
     if rc != 0:
         return error("pm2 jlist failed (rc=%s)" % rc)
-    start = out.find("[")
-    if start == -1:
+    procs = _parse_jlist(out)
+    if procs is None:
         return error("pm2 jlist returned no JSON")
-    try:
-        procs = json.loads(out[start:])
-    except ValueError as e:
-        return error("pm2 jlist unparseable: %s" % e)
     return ok([_proc(p) for p in procs])
+
+
+def _parse_jlist(out):
+    # pm2 jlist often prints daemon-spawn banner lines before the JSON, and
+    # those banners can themselves start with "[" (e.g. "[PM2] Spawning...").
+    # Try every line that looks like a JSON start and keep the first one
+    # that actually parses, instead of trusting the first "[" in the output.
+    pos = 0
+    for line in out.splitlines(keepends=True):
+        stripped = line.lstrip()
+        if stripped.startswith("["):
+            start = pos + (len(line) - len(stripped))
+            try:
+                return json.loads(out[start:])
+            except ValueError:
+                pass
+        pos += len(line)
+    return None
 
 
 def _proc(p):
