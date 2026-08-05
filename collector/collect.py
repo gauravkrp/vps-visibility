@@ -44,8 +44,9 @@ def _safe(fn):
         return {"status": "error", "message": str(e)}
 
 
-def main():
-    path = sys.argv[1] if len(sys.argv) > 1 else "/etc/vps-visibility/config.json"
+def main(argv=None):
+    argv = argv if argv is not None else sys.argv[1:]
+    path = argv[0] if argv else "/etc/vps-visibility/config.json"
     try:
         cfg = load_config(path)
     except (OSError, ValueError) as e:
@@ -129,6 +130,7 @@ def main():
 
     msgs, alert_state = alerts.compute(state.get("alert", {}), current, cfg, now)
     telegram = cfg["telegram"]
+    state["telegram_error"] = None
     if msgs and telegram.get("bot_token") and telegram.get("chat_id"):
         sent = alerts.send_telegram(telegram["bot_token"], telegram["chat_id"], "\n".join(msgs))
         state["telegram_error"] = None if sent else "send failed at %s" % now
