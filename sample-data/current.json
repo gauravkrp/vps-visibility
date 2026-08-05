@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-08-05T09:00:00+00:00",
+  "interval_seconds": 300,
+  "host": {
+    "hostname": "vps-1",
+    "public_ip": "203.0.113.10",
+    "uptime_seconds": 5443200,
+    "load": [0.42, 0.51, 0.48],
+    "mem": {"total_bytes": 16777216000, "used_bytes": 6442450944},
+    "filesystems": [{"mount": "/", "total_bytes": 206158430208, "used_bytes": 166429982720, "pct": 80.7}]
+  },
+  "apps": [
+    {"name": "shop", "label": "shop", "runtime": "compose", "dir": "/root/shop",
+     "domains": [
+       {"domain": "app.example.com", "scheme": "https", "status_code": 200, "ok": true, "tls_valid": true, "cert_days_left": 88},
+       {"domain": "www.app.example.com", "scheme": "https", "status_code": 200, "ok": true, "tls_valid": true, "cert_days_left": 88}],
+     "mem_bytes": 705000000, "disk_bytes": 800000000, "started_at": "2026-08-04T18:00:05.000000000Z",
+     "containers": [
+       {"name": "shop-web-1", "state": "running", "health": null},
+       {"name": "shop-backend-1", "state": "running", "health": "healthy"}]},
+    {"name": "cms", "label": "cms", "runtime": "pm2", "dir": "/var/www/cms",
+     "domains": [{"domain": "cms.example.com", "scheme": "https", "status_code": 401, "ok": true, "tls_valid": false, "cert_days_left": 12}],
+     "mem_bytes": 190000000, "disk_bytes": 350000000, "started_at": "2025-08-04T09:33:20+00:00", "containers": []},
+    {"name": "game", "label": "Game Server", "runtime": "container", "dir": "/root/game",
+     "domains": [], "mem_bytes": 1800000000, "disk_bytes": null,
+     "started_at": "2026-06-15T08:00:00.000000000Z",
+     "containers": [{"name": "game", "state": "running", "health": null}]},
+    {"name": "/var/www/docs", "label": "/var/www/docs", "runtime": "static", "dir": "/var/www/docs",
+     "domains": [{"domain": "docs.example.com", "scheme": "http", "status_code": 200, "ok": true, "tls_valid": null, "cert_days_left": null}],
+     "mem_bytes": 0, "disk_bytes": 120000000, "started_at": null, "containers": []}
+  ],
+  "vhosts": [
+    {"domains": ["app.example.com", "www.app.example.com"], "upstream_port": 3000, "static_root": null, "tls": true, "app": "shop", "status": "ok"},
+    {"domains": ["cms.example.com"], "upstream_port": 8055, "static_root": null, "tls": true, "app": "cms", "status": "ok"},
+    {"domains": ["docs.example.com"], "upstream_port": null, "static_root": "/var/www/docs", "tls": false, "app": "/var/www/docs", "status": "static"},
+    {"domains": ["monitoring.example.com"], "upstream_port": 8080, "static_root": null, "tls": true, "app": null, "status": "dead"}
+  ],
+  "certs": {"/etc/letsencrypt/live/app.example.com/fullchain.pem": {"not_after": "2026-11-01T00:00:00+00:00", "days_left": 88}},
+  "warnings": [
+    {"kind": "dead_vhost", "message": "monitoring.example.com points at 127.0.0.1:8080 but nothing is listening there"},
+    {"kind": "exposed_port", "message": "port 65410 (game) is bound to 0.0.0.0 and bypasses nginx and TLS"},
+    {"kind": "tls_invalid", "message": "cms.example.com serves a certificate that fails verification"},
+    {"kind": "cert_expiring", "message": "/etc/letsencrypt/live/cms.example.com/fullchain.pem expires in 12 days"}
+  ],
+  "gatherers": {
+    "nginx": {"status": "ok"}, "docker": {"status": "ok"}, "pm2": {"status": "ok"},
+    "ports": {"status": "ok"}, "host": {"status": "ok"}, "certs": {"status": "ok"}, "probe": {"status": "ok"}
+  },
+  "telegram_error": null
+}
