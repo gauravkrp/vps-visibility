@@ -1,3 +1,7 @@
+import json
+import urllib.error
+from unittest.mock import patch
+
 from collector import alerts
 
 CONFIG = {"thresholds": {"disk_pct": 90, "mem_pct": 90, "cert_warn_days": 14}}
@@ -81,3 +85,21 @@ def test_gatherer_error_alerts_on_transition():
     assert any(m.startswith("COLLECTOR") for m in msgs)
     msgs, _ = alerts.compute(state, make_current(gatherers=bad), CONFIG, 1300)
     assert msgs == []
+
+
+def test_send_telegram_success():
+    with patch("collector.alerts.urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value.__enter__.return_value.getcode.return_value = 200
+        result = alerts.send_telegram("BOTTOKEN", "555", "server is down")
+    assert result is True
+    req = mock_urlopen.call_args[0][0]
+    assert "BOTTOKEN" in req.full_url
+    body = json.loads(req.data.decode())
+    assert body == {"chat_id": "555", "text": "server is down"}
+
+
+def test_send_telegram_failure_returns_false():
+    with patch("collector.alerts.urllib.request.urlopen",
+               side_effect=urllib.error.URLError("boom")):
+        result = alerts.send_telegram("BOTTOKEN", "555", "server is down")
+    assert result is False

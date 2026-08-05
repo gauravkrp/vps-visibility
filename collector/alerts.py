@@ -55,6 +55,7 @@ def compute(prev, current, config, now_ts):
     for path, info in current.get("certs", {}).items():
         days = info.get("days_left")
         if days is not None and days <= warn_days:
+            # -inf, not 0: real epoch now_ts values make 0 read as "long ago" too, but small test/local timestamps don't.
             if now_ts - state["cert_sent"].get(path, float("-inf")) >= 3 * 86400:
                 msgs.append("CERT: %s expires in %s days" % (path, days))
                 state["cert_sent"][path] = now_ts
