@@ -1,0 +1,23 @@
+[
+  {
+    "Name": "/shop-web-1",
+    "Created": "2026-08-01T10:00:00.000000000Z",
+    "State": {"Status": "running", "StartedAt": "2026-08-04T18:00:00.000000000Z"},
+    "Config": {"Image": "shop-web", "Labels": {"com.docker.compose.project": "shop", "com.docker.compose.project.working_dir": "/root/shop"}},
+    "NetworkSettings": {"Ports": {"80/tcp": [{"HostIp": "127.0.0.1", "HostPort": "3000"}]}}
+  },
+  {
+    "Name": "/shop-backend-1",
+    "Created": "2026-08-01T10:00:00.000000000Z",
+    "State": {"Status": "running", "StartedAt": "2026-08-04T18:00:05.000000000Z", "Health": {"Status": "healthy"}},
+    "Config": {"Image": "shop-backend", "Labels": {"com.docker.compose.project": "shop", "com.docker.compose.project.working_dir": "/root/shop"}},
+    "NetworkSettings": {"Ports": {"8000/tcp": null}}
+  },
+  {
+    "Name": "/game",
+    "Created": "2026-06-15T08:00:00.000000000Z",
+    "State": {"Status": "running", "StartedAt": "2026-06-15T08:00:00.000000000Z"},
+    "Config": {"Image": "game:latest", "Labels": {}},
+    "NetworkSettings": {"Ports": {"65410/tcp": [{"HostIp": "0.0.0.0", "HostPort": "65410"}]}}
+  }
+]
