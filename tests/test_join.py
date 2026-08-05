@@ -55,7 +55,9 @@ CERTS = {"/etc/letsencrypt/live/app.example.com/fullchain.pem":
 
 DU = {"/root/shop": 800000000}
 
-OVERRIDES = [{"match": "game", "dir": "/root/game", "label": "Game Server"}]
+# Deliberately mismatched case against the "game" app name, to catch a
+# one-sided .lower() bug in the override matching.
+OVERRIDES = [{"match": "GAME", "dir": "/root/game", "label": "Game Server"}]
 
 
 def _build():
@@ -107,8 +109,86 @@ def test_exposed_ports_deduped_and_named():
     assert len(exposed) == 2
     assert "65410" in messages and "8055" in messages
     assert "game" in messages
+    # Port 8055 is backed by the pm2 process "cms", not its raw listener
+    # name "node" - the exposed-port warning must name the same owner the
+    # vhost loop does.
+    assert "cms" in messages
 
 
 def test_tls_invalid_warning():
     tls = [w for w in _build()["warnings"] if w["kind"] == "tls_invalid"]
     assert len(tls) == 1 and "cms.example.com" in tls[0]["message"]
+
+
+def test_static_vhosts_collapse_into_one_app():
+    vhosts = [
+        {"domains": ["blog.example.com"], "upstream_host": None, "upstream_port": None,
+         "static_root": "/var/www/blog", "tls": True, "cert_path": None, "remote": False},
+        {"domains": ["blog-alias.example.com"], "upstream_host": None, "upstream_port": None,
+         "static_root": "/var/www/blog", "tls": True, "cert_path": None, "remote": False},
+    ]
+    result = join.build(vhosts, {"containers": [], "projects": {}}, [], [], {}, {}, {}, [])
+    static_apps = [a for a in result["apps"] if a["runtime"] == "static"]
+    assert len(static_apps) == 1
+    assert [d["domain"] for d in static_apps[0]["domains"]] == \
+        ["blog.example.com", "blog-alias.example.com"]
+
+
+def test_dead_vhost_precedence_over_real_container_port_match():
+    containers = [
+        {"name": "api", "image": "api:latest", "state": "running", "health": None,
+         "started_at": "2026-08-04T18:00:00.000000000Z", "compose_project": None,
+         "compose_workdir": None,
+         "published_ports": [{"host_ip": "127.0.0.1", "host_port": 4000, "container_port": "80/tcp"}],
+         "mem_bytes": 1000000},
+    ]
+    vhosts = [
+        {"domains": ["api.example.com"], "upstream_host": "127.0.0.1", "upstream_port": 4000,
+         "static_root": None, "tls": True, "cert_path": None, "remote": False},
+    ]
+    probe = {"domains": {}, "upstreams": {4000: False}}
+    result = join.build(vhosts, {"containers": containers, "projects": {}}, [], [], probe, {}, {}, [])
+
+    api_vhost = result["vhosts"][0]
+    assert api_vhost["status"] == "dead"
+    assert api_vhost["app"] is None
+
+    api_apps = [a for a in result["apps"] if a["name"] == "api"]
+    assert len(api_apps) == 1
+    assert api_apps[0]["domains"] == []
+
+
+def test_dead_process_fallback_vhost_does_not_create_phantom_app():
+    vhosts = [
+        {"domains": ["ghost.example.com"], "upstream_host": "127.0.0.1", "upstream_port": 9100,
+         "static_root": None, "tls": True, "cert_path": None, "remote": False},
+    ]
+    listeners = [{"addr": "0.0.0.0", "port": 9100, "pid": 999, "process": "ghost-proc", "public": True}]
+    probe = {"domains": {}, "upstreams": {9100: False}}
+    result = join.build(vhosts, {"containers": [], "projects": {}}, [], listeners, probe, {}, {}, [])
+
+    assert not any(a["name"] == "ghost-proc" for a in result["apps"])
+    v = result["vhosts"][0]
+    assert v["status"] == "dead" and v["app"] is None
+
+
+def test_tls_invalid_warning_names_only_the_bad_domain_on_multi_domain_vhost():
+    vhosts = [
+        {"domains": ["good.example.com", "bad.example.com"], "upstream_host": "127.0.0.1",
+         "upstream_port": 9000, "static_root": None, "tls": True, "cert_path": None, "remote": False},
+    ]
+    probe = {
+        "domains": {
+            "good.example.com": {"scheme": "https", "status_code": 200, "latency_ms": 10,
+                                  "ok": True, "tls_valid": True},
+            "bad.example.com": {"scheme": "https", "status_code": 200, "latency_ms": 10,
+                                 "ok": True, "tls_valid": False},
+        },
+        "upstreams": {9000: True},
+    }
+    result = join.build(vhosts, {"containers": [], "projects": {}}, [], [], probe, {}, {}, [])
+
+    tls = [w for w in result["warnings"] if w["kind"] == "tls_invalid"]
+    assert len(tls) == 1
+    assert "bad.example.com" in tls[0]["message"]
+    assert "good.example.com" not in tls[0]["message"]

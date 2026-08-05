@@ -46,15 +46,20 @@ def build(vhosts, docker_data, pm2_procs, listeners, probe_data, cert_info, du_c
         elif port:
             c = port_to_container.get(port)
             listener = port_to_listener.get(port)
+            dead = probe_data.get("upstreams", {}).get(port) is False
             if c:
                 app_key = container_key(c)
             elif listener and listener["pid"] in pm2_by_pid:
                 app_key = "pm2:" + pm2_by_pid[listener["pid"]]["name"]
             elif listener:
-                name = listener["process"] or "unknown"
+                name = _owner_name_for_port(port, port_to_container, port_to_listener, pm2_by_pid)
                 app_key = "process:" + name
-                apps.setdefault(app_key, _new_app(name, "process", None))
-            if probe_data.get("upstreams", {}).get(port) is False:
+                # Only register the app once we know the port is alive - a container
+                # or pm2 app already exists regardless, but this bare-process entry
+                # is created purely from this vhost and must not outlive a dead verdict.
+                if not dead:
+                    apps.setdefault(app_key, _new_app(name, "process", None))
+            if dead:
                 status = "dead"
                 app_key = None
                 warnings.append({"kind": "dead_vhost",
@@ -69,12 +74,13 @@ def build(vhosts, docker_data, pm2_procs, listeners, probe_data, cert_info, du_c
             warnings.append({"kind": "dead_vhost",
                              "message": "%s has no proxy_pass or root directive" % ", ".join(v["domains"])})
 
-        if app_key and app_key in apps:
-            app = apps[app_key]
-            for d in v["domains"]:
-                pr = probe_data.get("domains", {}).get(d, {})
+        # Every vhost gets its domains probed for a bad cert, attached app or not -
+        # a dead or remote vhost can still be serving a broken certificate.
+        for d in v["domains"]:
+            pr = probe_data.get("domains", {}).get(d, {})
+            if app_key and app_key in apps:
                 cert = cert_info.get(v.get("cert_path") or "", {})
-                app["domains"].append({
+                apps[app_key]["domains"].append({
                     "domain": d,
                     "scheme": pr.get("scheme"),
                     "status_code": pr.get("status_code"),
@@ -82,9 +88,9 @@ def build(vhosts, docker_data, pm2_procs, listeners, probe_data, cert_info, du_c
                     "tls_valid": pr.get("tls_valid"),
                     "cert_days_left": cert.get("days_left"),
                 })
-                if pr.get("tls_valid") is False:
-                    warnings.append({"kind": "tls_invalid",
-                                     "message": "%s serves a certificate that fails verification" % d})
+            if pr.get("tls_valid") is False:
+                warnings.append({"kind": "tls_invalid",
+                                 "message": "%s serves a certificate that fails verification" % d})
         vhosts_out.append({
             "domains": v["domains"], "upstream_port": port, "static_root": v.get("static_root"),
             "tls": v["tls"], "app": apps[app_key]["name"] if app_key and app_key in apps else None,
@@ -95,8 +101,7 @@ def build(vhosts, docker_data, pm2_procs, listeners, probe_data, cert_info, du_c
     for l in listeners:
         if l["public"] and l["port"] not in (22, 80, 443) and l["port"] not in seen_ports:
             seen_ports.add(l["port"])
-            owner = port_to_container.get(l["port"])
-            who = owner["name"] if owner else (l["process"] or "unknown")
+            who = _owner_name_for_port(l["port"], port_to_container, port_to_listener, pm2_by_pid)
             warnings.append({"kind": "exposed_port",
                              "message": "port %s (%s) is bound to %s and bypasses nginx and TLS"
                                         % (l["port"], who, l["addr"])})
@@ -111,6 +116,22 @@ def build(vhosts, docker_data, pm2_procs, listeners, probe_data, cert_info, du_c
 
     return {"apps": sorted(apps.values(), key=lambda a: a["name"].lower()),
             "vhosts": vhosts_out, "warnings": warnings}
+
+
+def _owner_name_for_port(port, port_to_container, port_to_listener, pm2_by_pid):
+    """Resolve the name of whatever owns a port, in one priority order used
+    everywhere: container (or its compose project) beats a pm2 process
+    listening on that port, which beats the raw listener process name."""
+    c = port_to_container.get(port)
+    if c:
+        return c["compose_project"] or c["name"]
+    listener = port_to_listener.get(port)
+    if listener:
+        pm2 = pm2_by_pid.get(listener["pid"])
+        if pm2:
+            return pm2["name"]
+        return listener["process"] or "unknown"
+    return "unknown"
 
 
 def _new_app(name, runtime, directory):
