@@ -103,3 +103,29 @@ def test_gather_iterates_vhosts_dedups_upstreams_and_skips_remote():
     assert set(result["data"]["domains"]) == {"a.example.com", "b.example.com", "c.example.com"}
     assert calls["tcp"] == [3000]
     assert result["data"]["upstreams"] == {3000: True}
+
+
+def test_gather_preserves_tls_valid_false_through_plain_http_fallback():
+    # Simulates: cert verification fails, the internal unverified retry also
+    # fails (e.g. a transient connection drop), then gather()'s own plain-HTTP
+    # fallback succeeds. The bad-cert finding must not be lost.
+    def fake_probe_domain(domain, tls, via="localhost", timeout=5):
+        if tls:
+            return {"scheme": "https", "status_code": None, "latency_ms": 1,
+                     "ok": False, "tls_valid": False}
+        return {"scheme": "http", "status_code": 200, "latency_ms": 1,
+                 "ok": True, "tls_valid": None}
+
+    vhosts = [{"domains": ["bad-cert.example.com"], "tls": True}]
+
+    import collector.gatherers.probe as probe_mod
+    orig_probe_domain = probe_mod.probe_domain
+    probe_mod.probe_domain = fake_probe_domain
+    try:
+        result = gather(vhosts)
+    finally:
+        probe_mod.probe_domain = orig_probe_domain
+
+    r = result["data"]["domains"]["bad-cert.example.com"]
+    assert r["status_code"] == 200
+    assert r["tls_valid"] is False

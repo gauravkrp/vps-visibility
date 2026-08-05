@@ -14,6 +14,11 @@ def gather(vhosts, via="localhost"):
             if v["tls"] and r["status_code"] is None:
                 fallback = probe_domain(d, False, via)
                 if fallback["status_code"] is not None:
+                    # A confirmed bad cert (tls_valid is False, not just unknown)
+                    # must survive the plain-HTTP fallback, or the report would
+                    # wrongly read "no TLS" instead of "TLS is broken".
+                    if r["tls_valid"] is False:
+                        fallback["tls_valid"] = False
                     r = fallback
             domains[d] = r
         port = v.get("upstream_port")
