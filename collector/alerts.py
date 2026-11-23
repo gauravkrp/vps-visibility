@@ -11,7 +11,7 @@ TRACKED_WARNING_KINDS = {"dead_vhost", "exposed_port", "tls_invalid"}
 def compute(prev, current, config, now_ts):
     msgs = []
     thresholds = config["thresholds"]
-    state = {"domains": {}, "apps": {}, "breaches": {},
+    state = {"domains": {}, "app_starts": {}, "breaches": {},
              "cert_sent": dict(prev.get("cert_sent", {})), "gerrs": {},
              "warnings": {}}
 
@@ -30,18 +30,25 @@ def compute(prev, current, config, now_ts):
                     msgs.append("DOWN: %s (status %s)" % (name, d["status_code"]))
                 state["domains"][name] = {"ok": was["ok"] and fails < 2, "fails": fails}
 
-    prev_apps = prev.get("apps", {})
+    # Start times are kept per runtime, then per name. A pm2 process and a
+    # compose project can share a name (a CMS and the site it feeds), and with
+    # one slot for both, whichever was written last made the other read as a
+    # restart on every run. State from before this layout sat under "apps" and
+    # is ignored, so the first run after upgrading is quiet rather than
+    # reporting every app as gone.
+    prev_starts = prev.get("app_starts", {})
     for app in current["apps"]:
-        if app["runtime"] not in ("compose", "container", "pm2"):
+        runtime, name = app["runtime"], app["name"]
+        if runtime not in ("compose", "container", "pm2"):
             continue
-        state["apps"][app["name"]] = {"started_at": app["started_at"]}
-        old = prev_apps.get(app["name"])
-        if (old and old.get("started_at") and app["started_at"]
-                and app["started_at"] > old["started_at"]):
-            msgs.append("RESTARTED: %s (started %s)" % (app["name"], app["started_at"]))
-    for name in prev_apps:
-        if name not in state["apps"]:
-            msgs.append("GONE: %s is no longer running" % name)
+        state["app_starts"].setdefault(runtime, {})[name] = app["started_at"]
+        old = prev_starts.get(runtime, {}).get(name)
+        if old and app["started_at"] and app["started_at"] > old:
+            msgs.append("RESTARTED: %s (%s, started %s)" % (name, runtime, app["started_at"]))
+    for runtime, starts in prev_starts.items():
+        for name in starts:
+            if name not in state["app_starts"].get(runtime, {}):
+                msgs.append("GONE: %s (%s) is no longer running" % (name, runtime))
 
     prev_breaches = prev.get("breaches", {})
     checks = []

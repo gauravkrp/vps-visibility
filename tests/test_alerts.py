@@ -58,10 +58,44 @@ def test_restart_detected():
 
 
 def test_gone_app_detected():
-    state = {"apps": {"shop": {"started_at": "x"}, "old-app": {"started_at": "y"}}}
+    state = {"app_starts": {"compose": {"shop": "x", "old-app": "y"}}}
     msgs, new_state = alerts.compute(state, make_current(), CONFIG, 1000)
     assert any(m.startswith("GONE") and "old-app" in m for m in msgs)
-    assert "old-app" not in new_state["apps"]
+    assert "old-app" not in new_state["app_starts"]["compose"]
+
+
+def with_pm2_namesake(current, started):
+    """The same app name under pm2 as well, e.g. a CMS and the site it feeds."""
+    pm2 = dict(current["apps"][0], runtime="pm2", started_at=started, domains=[])
+    current["apps"].append(pm2)
+    return current
+
+
+def test_same_name_in_two_runtimes_is_not_a_restart():
+    def snapshot():
+        return with_pm2_namesake(make_current(started="2026-11-23T06:49:31Z"),
+                                 "2026-11-13T06:46:19Z")
+
+    _, state = alerts.compute({}, snapshot(), CONFIG, 1000)
+    msgs, state = alerts.compute(state, snapshot(), CONFIG, 1300)
+    assert msgs == []
+    msgs, _ = alerts.compute(state, snapshot(), CONFIG, 1600)
+    assert msgs == []
+
+
+def test_restart_names_the_runtime_when_names_collide():
+    _, state = alerts.compute(
+        {}, with_pm2_namesake(make_current(), "2026-11-13T06:46:19Z"), CONFIG, 1000)
+    msgs, _ = alerts.compute(
+        state, with_pm2_namesake(make_current(), "2026-11-23T09:00:00Z"), CONFIG, 1300)
+    assert msgs == ["RESTARTED: shop (pm2, started 2026-11-23T09:00:00Z)"]
+
+
+def test_state_keyed_by_name_alone_is_ignored_not_reported_gone():
+    state = {"apps": {"shop": {"started_at": "2026-08-04T18:00:05Z"}}}
+    msgs, new_state = alerts.compute(state, make_current(), CONFIG, 1000)
+    assert msgs == []
+    assert new_state["app_starts"] == {"compose": {"shop": "2026-08-04T18:00:05Z"}}
 
 
 def test_threshold_fires_on_crossing_only():
